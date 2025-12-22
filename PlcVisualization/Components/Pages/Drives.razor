@@ -1,0 +1,279 @@
+@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+@using PlcVisualization.Models
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+<PageTitle>PLC Visualisierung</PageTitle>
+
+<div class="container-fluid">
+    <div class="header-section">
+        <h1>Anlagenvisualisierung</h1>
+        <div class="status-bar">
+            <div class="connection-status @(isConnected ? "connected" : "disconnected")">
+                <span class="status-dot"></span>
+                @(isConnected ? "Verbunden" : "Getrennt")
+            </div>
+            <div class="drive-count">
+                @connectedDrives / 100 Antriebe
+            </div>
+        </div>
+    </div>
+
+    @if (!isConnected)
+    {
+        <div class="alert alert-warning">
+            <strong>Achtung:</strong> Keine Verbindung zur SPS. Warten auf Verbindung...
+        </div>
+    }
+
+    <div class="drive-grid">
+        @foreach (var drive in drives.Values.OrderBy(d => d.Id))
+        {
+            <div class="drive-card @GetDriveStatusClass(drive)">
+                <div class="drive-header">
+                    <h3>@drive.Name</h3>
+                    <span class="drive-id">#@drive.Id</span>
+                </div>
+
+                <div class="drive-mode">
+                    <button class="mode-btn @(!drive.ModeAuto ? "active" : "")"
+                            @onclick="() => SetMode(drive.Id, false)"
+                            disabled="@(!isConnected)">
+                        HAND
+                    </button>
+                    <button class="mode-btn @(drive.ModeAuto ? "active" : "")"
+                            @onclick="() => SetMode(drive.Id, true)"
+                            disabled="@(!isConnected)">
+                        AUTO
+                    </button>
+                </div>
+
+                @if (!drive.ModeAuto)
+                {
+                    <div class="drive-controls">
+                        @if (drive.Capabilities.HasForward)
+                        {
+                            <button class="control-btn forward @(drive.Running && drive.Forward ? "active" : "")"
+                                    @onclick="() => StartDrive(drive.Id, true)"
+                                    disabled="@(!isConnected)">
+                                ▶ Vorwärts
+                            </button>
+                        }
+
+                        @if (drive.Capabilities.HasReverse)
+                        {
+                            <button class="control-btn reverse @(drive.Running && drive.Reverse ? "active" : "")"
+                                    @onclick="() => StartDrive(drive.Id, false)"
+                                    disabled="@(!isConnected)">
+                                ◀ Rückwärts
+                            </button>
+                        }
+
+                        <button class="control-btn stop"
+                                @onclick="() => StopDrive(drive.Id)"
+                                disabled="@(!isConnected)">
+                            ■ Stop
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="auto-mode-info">
+                        <span>Automatik-Modus aktiv</span>
+                    </div>
+                }
+
+                @if (drive.Capabilities.HasSetpoint && !drive.ModeAuto)
+                {
+                    <div class="setpoint">
+                        <label>Sollwert (RPM):</label>
+                        <input type="number"
+                               value="@drive.Setpoint"
+                               @onchange="(e) => SetSetpoint(drive.Id, e.Value)"
+                               disabled="@(!isConnected)"
+                               min="0"
+                               max="3000" />
+                    </div>
+                }
+
+                <div class="drive-values">
+                    @if (drive.Capabilities.HasSpeedDisplay)
+                    {
+                        <div class="value">
+                            <span class="label">Drehzahl:</span>
+                            <span class="data">@drive.Speed RPM</span>
+                        </div>
+                    }
+
+                    @if (drive.Capabilities.HasCurrentDisplay)
+                    {
+                        <div class="value">
+                            <span class="label">Strom:</span>
+                            <span class="data">@(drive.Current / 10.0) A</span>
+                        </div>
+                    }
+
+                    @if (drive.Capabilities.HasSetpoint)
+                    {
+                        <div class="value">
+                            <span class="label">Sollwert:</span>
+                            <span class="data">@drive.Setpoint RPM</span>
+                        </div>
+                    }
+                </div>
+
+                @if (drive.Error && drive.Capabilities.HasErrorDisplay)
+                {
+                    <div class="error-display">
+                        ⚠ Fehler: @drive.ErrorCode
+                    </div>
+                }
+
+                <div class="last-update">
+                    @drive.LastUpdate.ToLocalTime().ToString("HH:mm:ss")
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private HubConnection? hubConnection;
+    private Dictionary<int, DriveState> drives = new();
+    private bool isConnected = false;
+    private int connectedDrives => drives.Count;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // SignalR Verbindung aufbauen
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/driveHub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        // Event Handler für initiale Daten
+        hubConnection.On<IEnumerable<DriveState>>("InitialDrives", (initialDrives) =>
+        {
+            foreach (var drive in initialDrives)
+            {
+                drives[drive.Id] = drive;
+            }
+            InvokeAsync(StateHasChanged);
+        });
+
+        // Event Handler für Updates
+        hubConnection.On<IEnumerable<DriveState>>("DrivesUpdated", (updatedDrives) =>
+        {
+            foreach (var drive in updatedDrives)
+            {
+                drives[drive.Id] = drive;
+            }
+            InvokeAsync(StateHasChanged);
+        });
+
+        // Event Handler für PLC-Verbindungsstatus
+        hubConnection.On<bool>("PlcConnectionStatus", (connected) =>
+        {
+            isConnected = connected;
+            InvokeAsync(StateHasChanged);
+        });
+
+        // Event Handler für Befehlsbestätigung
+        hubConnection.On<object>("CommandResult", (result) =>
+        {
+            // Optional: Feedback anzeigen
+        });
+
+        // Reconnect Events
+        hubConnection.Reconnecting += (error) =>
+        {
+            isConnected = false;
+            InvokeAsync(StateHasChanged);
+            return Task.CompletedTask;
+        };
+
+        hubConnection.Reconnected += (connectionId) =>
+        {
+            InvokeAsync(StateHasChanged);
+            return Task.CompletedTask;
+        };
+
+        try
+        {
+            await hubConnection.StartAsync();
+            isConnected = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fehler beim Verbinden: {ex.Message}");
+            isConnected = false;
+        }
+    }
+
+    private async Task SetMode(int driveId, bool auto)
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("SendDriveCommand", new DriveCommand
+                {
+                    DriveId = driveId,
+                    ModeAuto = auto
+                });
+        }
+    }
+
+    private async Task StartDrive(int driveId, bool forward)
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("SendDriveCommand", new DriveCommand
+                {
+                    DriveId = driveId,
+                    Start = true,
+                    Forward = forward,
+                    Reverse = !forward
+                });
+        }
+    }
+
+    private async Task StopDrive(int driveId)
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("SendDriveCommand", new DriveCommand
+                {
+                    DriveId = driveId,
+                    Stop = true
+                });
+        }
+    }
+
+    private async Task SetSetpoint(int driveId, object? value)
+    {
+        if (hubConnection is not null && short.TryParse(value?.ToString(), out var setpoint))
+        {
+            await hubConnection.SendAsync("SendDriveCommand", new DriveCommand
+                {
+                    DriveId = driveId,
+                    Setpoint = setpoint
+                });
+        }
+    }
+
+    private string GetDriveStatusClass(DriveState drive)
+    {
+        if (drive.Error) return "error";
+        if (drive.Running) return "running";
+        return "";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
