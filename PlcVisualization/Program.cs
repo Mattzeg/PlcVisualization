@@ -1,6 +1,7 @@
 using PlcVisualization.Components;
 using PlcVisualization.Services;
 using PlcVisualization.Hubs;
+using PlcVisualization.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,9 @@ builder.Services.AddRazorComponents()
 
 // SignalR für Real-time Updates
 builder.Services.AddSignalR();
+
+// PLC Settings aus appsettings.json laden
+builder.Services.Configure<PlcSettings>(builder.Configuration.GetSection("PlcSettings"));
 
 // PLC Service als Singleton und HostedService
 builder.Services.AddSingleton<PlcService>();

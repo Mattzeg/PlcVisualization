@@ -2,6 +2,7 @@ using S7.Net;
 using PlcVisualization.Models;
 using PlcVisualization.Hubs;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -17,22 +18,19 @@ namespace PlcVisualization.Services
     {
         private readonly ILogger<PlcService> _logger;
         private readonly IHubContext<DriveHub> _hubContext;
+        private readonly PlcSettings _settings;
         private Plc? _plc;
         private readonly Dictionary<int, DriveState> _driveStates = new();
         private bool _isConnected = false;
 
-        // Konfiguration - TODO: In appsettings.json auslagern
-        private const string PlcIpAddress = "192.168.0.1";
-        private const int DataBlock = 100;          // DB100 für Antriebsdaten
-        private const int DriveCount = 100;         // Anzahl Antriebe
-        private const int UpdateIntervalMs = 100;   // 100ms Polling-Intervall
-
         public PlcService(
             ILogger<PlcService> logger,
-            IHubContext<DriveHub> hubContext)
+            IHubContext<DriveHub> hubContext,
+            IOptions<PlcSettings> settings)
         {
             _logger = logger;
             _hubContext = hubContext;
+            _settings = settings.Value;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -51,7 +49,7 @@ namespace PlcVisualization.Services
                     if (_isConnected)
                     {
                         await ReadAllDrivesAsync();
-                        await Task.Delay(UpdateIntervalMs, stoppingToken);
+                        await Task.Delay(_settings.UpdateIntervalMs, stoppingToken);
                     }
                     else
                     {
@@ -83,21 +81,21 @@ namespace PlcVisualization.Services
         {
             try
             {
-                _logger.LogInformation($"Verbinde mit PLC auf {PlcIpAddress}...");
+                _logger.LogInformation($"Verbinde mit PLC auf {_settings.IpAddress}...");
 
-                _plc = new Plc(CpuType.S71500, PlcIpAddress, 0, 1);
+                _plc = new Plc(CpuType.S71500, _settings.IpAddress, (short)_settings.Rack, (short)_settings.Slot);
                 await _plc.OpenAsync();
 
                 _isConnected = _plc.IsConnected;
 
                 if (_isConnected)
                 {
-                    _logger.LogInformation($"✓ Erfolgreich verbunden mit PLC: {PlcIpAddress}");
+                    _logger.LogInformation($"✓ Erfolgreich verbunden mit PLC: {_settings.IpAddress}");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Verbindung zur PLC {PlcIpAddress} fehlgeschlagen");
+                _logger.LogError(ex, $"Verbindung zur PLC {_settings.IpAddress} fehlgeschlagen");
                 _isConnected = false;
             }
         }
@@ -111,16 +109,16 @@ namespace PlcVisualization.Services
 
             try
             {
-                // Alle 100 Antriebe in einem Rutsch lesen (10 Bytes pro Antrieb = 1000 Bytes)
-                var drives = new DriveData[DriveCount];
+                // Alle Antriebe in einem Rutsch lesen (10 Bytes pro Antrieb)
+                var drives = new DriveData[_settings.DriveCount];
 
-                // ReadClass liest das komplette Array aus DB100
-                _plc.ReadClass(drives, DataBlock, 0);
+                // ReadClass liest das komplette Array aus dem konfigurierten DB
+                _plc.ReadClass(drives, _settings.DataBlock, 0);
 
                 // States aktualisieren und nur geänderte Antriebe an Frontend senden
                 var updatedDrives = new List<DriveState>();
 
-                for (int i = 0; i < DriveCount; i++)
+                for (int i = 0; i < _settings.DriveCount; i++)
                 {
                     var driveData = drives[i];
                     var driveId = i + 1;
@@ -208,40 +206,40 @@ namespace PlcVisualization.Services
                 // Start/Stop (Running-Flag)
                 if (command.Start.HasValue)
                 {
-                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 1, command.Start.Value);
+                    _plc.WriteBit(DataType.DataBlock, _settings.DataBlock, baseOffset, 1, command.Start.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Start = {command.Start.Value}");
                 }
 
                 if (command.Stop.HasValue && command.Stop.Value)
                 {
-                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 1, false);
+                    _plc.WriteBit(DataType.DataBlock, _settings.DataBlock, baseOffset, 1, false);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Stop");
                 }
 
                 // Forward/Reverse
                 if (command.Forward.HasValue)
                 {
-                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 2, command.Forward.Value);
+                    _plc.WriteBit(DataType.DataBlock, _settings.DataBlock, baseOffset, 2, command.Forward.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Forward = {command.Forward.Value}");
                 }
 
                 if (command.Reverse.HasValue)
                 {
-                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 3, command.Reverse.Value);
+                    _plc.WriteBit(DataType.DataBlock, _settings.DataBlock, baseOffset, 3, command.Reverse.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Reverse = {command.Reverse.Value}");
                 }
 
                 // Setpoint
                 if (command.Setpoint.HasValue)
                 {
-                    _plc.WriteBytes(DataType.DataBlock, DataBlock, baseOffset + 6, S7.Net.Types.Int.ToByteArray(command.Setpoint.Value));
+                    _plc.WriteBytes(DataType.DataBlock, _settings.DataBlock, baseOffset + 6, S7.Net.Types.Int.ToByteArray(command.Setpoint.Value));
                     _logger.LogInformation($"Antrieb {command.DriveId}: Setpoint = {command.Setpoint.Value}");
                 }
 
                 // Mode Auto/Hand
                 if (command.ModeAuto.HasValue)
                 {
-                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 0, command.ModeAuto.Value);
+                    _plc.WriteBit(DataType.DataBlock, _settings.DataBlock, baseOffset, 0, command.ModeAuto.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Mode = {(command.ModeAuto.Value ? "AUTO" : "HAND")}");
                 }
 
