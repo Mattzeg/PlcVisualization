@@ -208,40 +208,40 @@ namespace PlcVisualization.Services
                 // Start/Stop (Running-Flag)
                 if (command.Start.HasValue)
                 {
-                    _plc.Write($"DB{DataBlock}.DBX{baseOffset}.1", DataType.DataBlock, command.Start.Value);
+                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 1, command.Start.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Start = {command.Start.Value}");
                 }
 
                 if (command.Stop.HasValue && command.Stop.Value)
                 {
-                    _plc.Write($"DB{DataBlock}.DBX{baseOffset}.1", DataType.DataBlock, false);
+                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 1, false);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Stop");
                 }
 
                 // Forward/Reverse
                 if (command.Forward.HasValue)
                 {
-                    _plc.Write($"DB{DataBlock}.DBX{baseOffset}.2", DataType.DataBlock, command.Forward.Value);
+                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 2, command.Forward.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Forward = {command.Forward.Value}");
                 }
 
                 if (command.Reverse.HasValue)
                 {
-                    _plc.Write($"DB{DataBlock}.DBX{baseOffset}.3", DataType.DataBlock, command.Reverse.Value);
+                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 3, command.Reverse.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Reverse = {command.Reverse.Value}");
                 }
 
                 // Setpoint
                 if (command.Setpoint.HasValue)
                 {
-                    _plc.Write($"DB{DataBlock}.DBW{baseOffset + 6}", DataType.DataBlock, command.Setpoint.Value);
+                    _plc.WriteBytes(DataType.DataBlock, DataBlock, baseOffset + 6, S7.Net.Types.Int.ToByteArray(command.Setpoint.Value));
                     _logger.LogInformation($"Antrieb {command.DriveId}: Setpoint = {command.Setpoint.Value}");
                 }
 
                 // Mode Auto/Hand
                 if (command.ModeAuto.HasValue)
                 {
-                    _plc.Write($"DB{DataBlock}.DBX{baseOffset}.0", DataType.DataBlock, command.ModeAuto.Value);
+                    _plc.WriteBit(DataType.DataBlock, DataBlock, baseOffset, 0, command.ModeAuto.Value);
                     _logger.LogInformation($"Antrieb {command.DriveId}: Mode = {(command.ModeAuto.Value ? "AUTO" : "HAND")}");
                 }
 
