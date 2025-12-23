@@ -25,6 +25,9 @@ builder.Services.AddSingleton<ConfigurationService>();
 // Drive Logging Service (Singleton)
 builder.Services.AddSingleton<DriveLoggingService>();
 
+// Layout Service (Singleton)
+builder.Services.AddSingleton<LayoutService>();
+
 // PLC Settings aus appsettings.json laden
 builder.Services.Configure<PlcSettings>(builder.Configuration.GetSection("PlcSettings"));
 

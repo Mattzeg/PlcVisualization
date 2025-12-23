@@ -1,0 +1,538 @@
+@page "/layout-editor"
+@page "/layout-editor/{LayoutId:int}"
+@using PlcVisualization.Models
+@using PlcVisualization.Services
+@inject LayoutService LayoutService
+@inject ConfigurationService ConfigService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Layout-Editor</PageTitle>
+
+<div class="editor-container">
+    <div class="editor-header">
+        <h1>Layout-Editor</h1>
+
+        <div class="header-controls">
+            <select class="form-control" value="@selectedLayoutId" @onchange="OnLayoutChangedEvent">
+                @foreach (var layoutItem in layouts)
+                {
+                    <option value="@layoutItem.Id">@layoutItem.Name</option>
+                }
+            </select>
+
+            <button class="btn btn-success" @onclick="SaveChanges">💾 Speichern</button>
+            <button class="btn btn-secondary" @onclick="GenerateGrid">⚡ Auto-Grid</button>
+            <button class="btn btn-primary" @onclick="NewLayout">➕ Neues Layout</button>
+            <button class="btn btn-secondary" @onclick="BackToView">← Zurück zur Ansicht</button>
+        </div>
+    </div>
+
+    <div class="editor-main">
+        <!-- Sidebar mit Antriebsliste -->
+        <div class="sidebar">
+            <h3>Antriebe</h3>
+            <div class="drive-list">
+                @foreach (var config in driveConfigs.Where(c => c.IsActive).OrderBy(c => c.Id))
+                {
+                    var hasPosition = positions.Any(p => p.DriveId == config.Id);
+                    <div class="drive-item @(hasPosition ? "placed" : "")" draggable="true">
+                        <span class="drive-id">#@config.Id</span>
+                        <span class="drive-name">@config.Name</span>
+                        @if (hasPosition)
+                        {
+                            <button class="btn-remove" @onclick="() => RemoveDrive(config.Id)">✕</button>
+                        }
+                        else
+                        {
+                            <button class="btn-add" @onclick="() => AddDriveToCenter(config.Id)">+</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Canvas -->
+        <div class="canvas-container">
+            @if (currentLayout == null)
+            {
+                <p>Layout wird geladen...</p>
+            }
+            else
+            {
+                <div class="canvas-wrapper">
+                    <svg width="@currentLayout.Width" height="@currentLayout.Height"
+                         viewBox="0 0 @currentLayout.Width @currentLayout.Height"
+                         style="background: white; border: 1px solid #ddd;">
+
+                        <!-- Grid -->
+                        @if (currentLayout.GridSize > 0)
+                        {
+                            <defs>
+                                <pattern id="editGrid" width="@currentLayout.GridSize" height="@currentLayout.GridSize" patternUnits="userSpaceOnUse">
+                                    <path d="M @currentLayout.GridSize 0 L 0 0 0 @currentLayout.GridSize" fill="none" stroke="#e0e0e0" stroke-width="0.5"/>
+                                </pattern>
+                            </defs>
+                            <rect width="100%" height="100%" fill="url(#editGrid)" />
+                        }
+
+                        <!-- Antriebe -->
+                        @foreach (var position in positions.OrderBy(p => p.ZIndex))
+                        {
+                            var config = driveConfigs.FirstOrDefault(c => c.Id == position.DriveId);
+                            var isSelected = selectedDrive == position.DriveId;
+
+                            <g class="drive-element @(isSelected ? "selected" : "")"
+                               @onclick="() => SelectDrive(position.DriveId)"
+                               @onmousedown="(e) => StartDrag(e, position)"
+                               style="cursor: move;">
+
+                                <!-- Shape -->
+                                @switch (position.ShapeType)
+                                {
+                                    case "rectangle":
+                                        <rect x="@position.X" y="@position.Y"
+                                              width="@position.Width"
+                                              height="@position.Height"
+                                              fill="@(position.CustomColor ?? "#90caf9")"
+                                              stroke="@(isSelected ? "#f44336" : "#333")"
+                                              stroke-width="@(isSelected ? 3 : 2)"
+                                              rx="5" />
+                                        break;
+
+                                    case "circle":
+                                        <circle cx="@(position.X + position.Width/2)" cy="@(position.Y + position.Height/2)"
+                                                r="@(Math.Min(position.Width, position.Height)/2)"
+                                                fill="@(position.CustomColor ?? "#90caf9")"
+                                                stroke="@(isSelected ? "#f44336" : "#333")"
+                                                stroke-width="@(isSelected ? 3 : 2)" />
+                                        break;
+
+                                    default:
+                                        <rect x="@position.X" y="@position.Y"
+                                              width="@position.Width"
+                                              height="@position.Height"
+                                              fill="@(position.CustomColor ?? "#90caf9")"
+                                              stroke="@(isSelected ? "#f44336" : "#333")"
+                                              stroke-width="@(isSelected ? 3 : 2)" />
+                                        break;
+                                }
+
+                                <!-- Label - TODO: Add SVG text labels -->
+                                @if (config != null)
+                                {
+                                    <!-- SVG text elements not supported in Razor, will be added via JavaScript -->
+                                }
+                            </g>
+                        }
+                    </svg>
+                </div>
+            }
+        </div>
+
+        <!-- Properties Panel -->
+        <div class="properties-panel">
+            <h3>Eigenschaften</h3>
+
+            @if (selectedDrive.HasValue)
+            {
+                var position = positions.FirstOrDefault(p => p.DriveId == selectedDrive.Value);
+                if (position != null)
+                {
+                    <div class="property-group">
+                        <label>Antrieb: #@position.DriveId</label>
+                    </div>
+
+                    <div class="property-group">
+                        <label>X-Position:</label>
+                        <input type="number" class="form-control" @bind="position.X" />
+                    </div>
+
+                    <div class="property-group">
+                        <label>Y-Position:</label>
+                        <input type="number" class="form-control" @bind="position.Y" />
+                    </div>
+
+                    <div class="property-group">
+                        <label>Breite:</label>
+                        <input type="number" class="form-control" @bind="position.Width" />
+                    </div>
+
+                    <div class="property-group">
+                        <label>Höhe:</label>
+                        <input type="number" class="form-control" @bind="position.Height" />
+                    </div>
+
+                    <div class="property-group">
+                        <label>Rotation (°):</label>
+                        <input type="number" class="form-control" @bind="position.Rotation" min="0" max="360" />
+                    </div>
+
+                    <div class="property-group">
+                        <label>Form:</label>
+                        <select class="form-control" @bind="position.ShapeType">
+                            <option value="rectangle">Rechteck</option>
+                            <option value="circle">Kreis</option>
+                            <option value="motor">Motor</option>
+                        </select>
+                    </div>
+
+                    <div class="property-group">
+                        <label>Farbe:</label>
+                        <input type="color" class="form-control" @bind="position.CustomColor" />
+                    </div>
+
+                    <div class="property-group">
+                        <label>
+                            <input type="checkbox" @bind="position.ShowLabel" />
+                            Label anzeigen
+                        </label>
+                    </div>
+
+                    <div class="property-group">
+                        <label>
+                            <input type="checkbox" @bind="position.IsVisible" />
+                            Sichtbar
+                        </label>
+                    </div>
+
+                    <div class="property-group">
+                        <button class="btn btn-danger btn-block" @onclick="() => RemoveDrive(position.DriveId)">
+                            Entfernen
+                        </button>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="text-muted">Wählen Sie einen Antrieb aus</p>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int? LayoutId { get; set; }
+
+    private List<LayoutConfiguration> layouts = new();
+    private LayoutConfiguration? currentLayout;
+    private List<DriveLayoutPosition> positions = new();
+    private List<DriveConfiguration> driveConfigs = new();
+
+    private int selectedLayoutId = 1;
+    private int? selectedDrive = null;
+
+    // Drag & Drop
+    private bool isDragging = false;
+    private DriveLayoutPosition? draggedPosition = null;
+    private double dragStartX = 0;
+    private double dragStartY = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        layouts = await LayoutService.GetActiveLayoutsAsync();
+
+        if (LayoutId.HasValue)
+        {
+            selectedLayoutId = LayoutId.Value;
+        }
+        else
+        {
+            var defaultLayout = await LayoutService.GetDefaultLayoutAsync();
+            if (defaultLayout != null)
+            {
+                selectedLayoutId = defaultLayout.Id;
+            }
+        }
+
+        driveConfigs = await ConfigService.GetAllConfigurationsAsync();
+        await LoadLayout();
+    }
+
+    private async Task LoadLayout()
+    {
+        currentLayout = await LayoutService.GetLayoutAsync(selectedLayoutId);
+
+        if (currentLayout != null)
+        {
+            positions = await LayoutService.GetLayoutPositionsAsync(selectedLayoutId);
+        }
+    }
+
+    private async Task OnLayoutChanged()
+    {
+        await LoadLayout();
+        selectedDrive = null;
+        StateHasChanged();
+    }
+
+    private async Task OnLayoutChangedEvent(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int layoutId))
+        {
+            selectedLayoutId = layoutId;
+            await OnLayoutChanged();
+        }
+    }
+
+    private void SelectDrive(int driveId)
+    {
+        selectedDrive = driveId;
+    }
+
+    private void StartDrag(MouseEventArgs e, DriveLayoutPosition position)
+    {
+        isDragging = true;
+        draggedPosition = position;
+        dragStartX = e.ClientX;
+        dragStartY = e.ClientY;
+        selectedDrive = position.DriveId;
+    }
+
+    private async Task AddDriveToCenter(int driveId)
+    {
+        if (currentLayout == null) return;
+
+        var newPosition = new DriveLayoutPosition
+        {
+            LayoutId = selectedLayoutId,
+            DriveId = driveId,
+            X = currentLayout.Width / 2 - 50,
+            Y = currentLayout.Height / 2 - 40,
+            Width = 100,
+            Height = 80,
+            ShapeType = DriveShapeType.Rectangle,
+            ShowLabel = true,
+            IsVisible = true,
+            ZIndex = 0
+        };
+
+        positions.Add(newPosition);
+        selectedDrive = driveId;
+        StateHasChanged();
+    }
+
+    private void RemoveDrive(int driveId)
+    {
+        var position = positions.FirstOrDefault(p => p.DriveId == driveId);
+        if (position != null)
+        {
+            positions.Remove(position);
+            if (selectedDrive == driveId)
+            {
+                selectedDrive = null;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        var success = await LayoutService.SavePositionsAsync(positions);
+        if (success)
+        {
+            await JS.InvokeVoidAsync("alert", "Layout gespeichert!");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "Fehler beim Speichern!");
+        }
+    }
+
+    private async Task GenerateGrid()
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "Automatisches Grid-Layout generieren? Alle aktuellen Positionen gehen verloren!"))
+        {
+            var success = await LayoutService.GenerateGridLayoutAsync(selectedLayoutId, columns: 10, spacing: 120);
+            if (success)
+            {
+                await LoadLayout();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task NewLayout()
+    {
+        // Vereinfachte Version: Zu Konfigurationsseite navigieren
+        await JS.InvokeVoidAsync("alert", "Layout-Verwaltung wird in der nächsten Version hinzugefügt");
+    }
+
+    private void BackToView()
+    {
+        Navigation.NavigateTo($"/layout/{selectedLayoutId}");
+    }
+}
+
+<style>
+    .editor-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    .editor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        background: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .header-controls {
+        display: flex;
+        gap: 10px;
+    }
+
+    .editor-main {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .sidebar {
+        width: 250px;
+        background: #f8f9fa;
+        border-right: 1px solid #dee2e6;
+        overflow-y: auto;
+        padding: 15px;
+    }
+
+    .drive-list {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .drive-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 13px;
+    }
+
+    .drive-item.placed {
+        background: #e3f2fd;
+        border-color: #2196f3;
+    }
+
+    .drive-id {
+        font-weight: bold;
+        color: #666;
+        min-width: 30px;
+    }
+
+    .drive-name {
+        flex: 1;
+    }
+
+    .btn-add, .btn-remove {
+        padding: 2px 8px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    .btn-add {
+        background: #4caf50;
+        color: white;
+    }
+
+    .btn-remove {
+        background: #f44336;
+        color: white;
+    }
+
+    .canvas-container {
+        flex: 1;
+        overflow: auto;
+        background: #e9ecef;
+        padding: 20px;
+    }
+
+    .canvas-wrapper {
+        display: inline-block;
+    }
+
+    .drive-element {
+        cursor: move;
+    }
+
+    .drive-element.selected rect,
+    .drive-element.selected circle {
+        stroke: #f44336;
+        stroke-width: 3;
+    }
+
+    .properties-panel {
+        width: 280px;
+        background: #f8f9fa;
+        border-left: 1px solid #dee2e6;
+        overflow-y: auto;
+        padding: 15px;
+    }
+
+    .property-group {
+        margin-bottom: 15px;
+    }
+
+    .property-group label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+        font-size: 13px;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 5px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .btn {
+        padding: 8px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+    .btn-primary {
+        background: #2196f3;
+        color: white;
+    }
+
+    .btn-secondary {
+        background: #666;
+        color: white;
+    }
+
+    .btn-success {
+        background: #4caf50;
+        color: white;
+    }
+
+    .btn-danger {
+        background: #f44336;
+        color: white;
+    }
+
+    .btn-block {
+        width: 100%;
+    }
+
+    .text-muted {
+        color: #999;
+        font-style: italic;
+    }
+</style>

@@ -23,6 +23,16 @@ namespace PlcVisualization.Data
         /// </summary>
         public DbSet<DriveLog> DriveLogs { get; set; }
 
+        /// <summary>
+        /// Layout-Konfigurationen
+        /// </summary>
+        public DbSet<LayoutConfiguration> LayoutConfigurations { get; set; }
+
+        /// <summary>
+        /// Antriebspositionen in Layouts
+        /// </summary>
+        public DbSet<DriveLayoutPosition> DriveLayoutPositions { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -48,6 +58,49 @@ namespace PlcVisualization.Data
 
             modelBuilder.Entity<DriveLog>()
                 .HasIndex(d => new { d.DriveId, d.Timestamp });
+
+            // Indizes für LayoutConfiguration
+            modelBuilder.Entity<LayoutConfiguration>()
+                .HasIndex(l => l.IsDefault);
+
+            modelBuilder.Entity<LayoutConfiguration>()
+                .HasIndex(l => l.SortOrder);
+
+            // Indizes für DriveLayoutPosition
+            modelBuilder.Entity<DriveLayoutPosition>()
+                .HasIndex(p => p.LayoutId);
+
+            modelBuilder.Entity<DriveLayoutPosition>()
+                .HasIndex(p => p.DriveId);
+
+            modelBuilder.Entity<DriveLayoutPosition>()
+                .HasIndex(p => new { p.LayoutId, p.DriveId })
+                .IsUnique();
+
+            // Beziehungen
+            modelBuilder.Entity<DriveLayoutPosition>()
+                .HasOne(p => p.Layout)
+                .WithMany(l => l.DrivePositions)
+                .HasForeignKey(p => p.LayoutId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Standard-Layout erstellen
+            modelBuilder.Entity<LayoutConfiguration>().HasData(
+                new LayoutConfiguration
+                {
+                    Id = 1,
+                    Name = "Standard-Layout",
+                    Description = "Automatisch generiertes Grid-Layout",
+                    Width = 1920,
+                    Height = 1080,
+                    GridSize = 20,
+                    IsDefault = true,
+                    IsActive = true,
+                    SortOrder = 0,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            );
 
             // Standard-Werte für alle 100 Antriebe beim Erstellen der Datenbank
             var configurations = new List<DriveConfiguration>();

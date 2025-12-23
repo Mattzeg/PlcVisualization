@@ -1,0 +1,455 @@
+@page "/layout"
+@page "/layout/{LayoutId:int}"
+@using PlcVisualization.Models
+@using PlcVisualization.Services
+@using PlcVisualization.Hubs
+@using Microsoft.AspNetCore.SignalR.Client
+@inject LayoutService LayoutService
+@inject ConfigurationService ConfigService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Anlagenlayout</PageTitle>
+
+<div class="layout-container">
+    <div class="layout-header">
+        <h1>Anlagenlayout</h1>
+
+        <div class="layout-controls">
+            <label>Layout:</label>
+            <select class="form-control" value="@selectedLayoutId" @onchange="OnLayoutChangedEvent">
+                @foreach (var layoutItem in layouts)
+                {
+                    <option value="@layoutItem.Id">@layoutItem.Name</option>
+                }
+            </select>
+
+            <button class="btn btn-secondary" @onclick="ZoomIn">🔍+</button>
+            <button class="btn btn-secondary" @onclick="ZoomOut">🔍-</button>
+            <button class="btn btn-secondary" @onclick="ResetZoom">Reset</button>
+            <button class="btn btn-primary" @onclick="NavigateToEditor">Editor</button>
+        </div>
+    </div>
+
+    @if (currentLayout == null)
+    {
+        <p>Layout wird geladen...</p>
+    }
+    else
+    {
+        <div class="svg-container" @ref="svgContainerRef">
+            <svg width="@currentLayout.Width" height="@currentLayout.Height"
+                 viewBox="@GetViewBox()"
+                 @onclick="OnSvgClick"
+                 @onmousedown="OnMouseDown"
+                 @onmousemove="OnMouseMove"
+                 @onmouseup="OnMouseUp"
+                 @onwheel="OnWheel"
+                 style="cursor: @(isPanning ? "grabbing" : "grab")">
+
+                <!-- Hintergrundbild falls vorhanden -->
+                @if (!string.IsNullOrEmpty(currentLayout.BackgroundSvg))
+                {
+                    <image href="@currentLayout.BackgroundSvg" width="@currentLayout.Width" height="@currentLayout.Height" />
+                }
+
+                <!-- Grid falls aktiviert -->
+                @if (currentLayout.GridSize > 0)
+                {
+                    <defs>
+                        <pattern id="grid" width="@currentLayout.GridSize" height="@currentLayout.GridSize" patternUnits="userSpaceOnUse">
+                            <path d="M @currentLayout.GridSize 0 L 0 0 0 @currentLayout.GridSize" fill="none" stroke="#e0e0e0" stroke-width="0.5"/>
+                        </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#grid)" />
+                }
+
+                <!-- Antriebe zeichnen -->
+                @foreach (var position in positions.Where(p => p.IsVisible).OrderBy(p => p.ZIndex))
+                {
+                    var driveState = driveStates.FirstOrDefault(d => d.Id == position.DriveId);
+                    var config = driveConfigs.FirstOrDefault(c => c.Id == position.DriveId);
+
+                    <g transform="translate(@position.X, @position.Y) rotate(@position.Rotation)">
+                        <!-- Antrieb-Symbol -->
+                        @switch (position.ShapeType)
+                        {
+                            case "rectangle":
+                                <rect x="0" y="0"
+                                      width="@position.Width"
+                                      height="@position.Height"
+                                      fill="@GetDriveColor(driveState, position)"
+                                      stroke="#333"
+                                      stroke-width="2"
+                                      rx="5"
+                                      class="drive-shape" />
+                                break;
+
+                            case "circle":
+                                <circle cx="@(position.Width/2)" cy="@(position.Height/2)"
+                                        r="@(Math.Min(position.Width, position.Height)/2)"
+                                        fill="@GetDriveColor(driveState, position)"
+                                        stroke="#333"
+                                        stroke-width="2"
+                                        class="drive-shape" />
+                                break;
+
+                            case "motor":
+                                <!-- Vereinfachtes Motor-Symbol -->
+                                <ellipse cx="@(position.Width/2)" cy="@(position.Height/2)"
+                                         rx="@(position.Width/2)" ry="@(position.Height/2)"
+                                         fill="@GetDriveColor(driveState, position)"
+                                         stroke="#333"
+                                         stroke-width="2"
+                                         class="drive-shape" />
+                                <line x1="@position.Width" y1="@(position.Height/2)"
+                                      x2="@(position.Width + 20)" y2="@(position.Height/2)"
+                                      stroke="#333"
+                                      stroke-width="3" />
+                                break;
+
+                            default:
+                                <rect x="0" y="0"
+                                      width="@position.Width"
+                                      height="@position.Height"
+                                      fill="@GetDriveColor(driveState, position)"
+                                      stroke="#333"
+                                      stroke-width="2"
+                                      class="drive-shape" />
+                                break;
+                        }
+
+                        <!-- Status-Indikatoren -->
+                        @if (driveState != null)
+                        {
+                            @if (driveState.Running)
+                            {
+                                <!-- Running-Indikator (kleiner grüner Kreis oben rechts) -->
+                                <circle cx="@(position.Width - 10)" cy="10" r="6" fill="#4caf50" stroke="white" stroke-width="1" />
+                            }
+
+                            @if (driveState.Error)
+                            {
+                                <!-- Error-Indikator (rotes Dreieck) -->
+                                <polygon points="@(position.Width/2),5 @(position.Width/2 - 10),20 @(position.Width/2 + 10),20"
+                                         fill="#f44336" stroke="white" stroke-width="1" />
+                                <!-- SVG text not supported in Razor -->
+                            }
+                        }
+
+                        <!-- Label - TODO: Add SVG labels via JavaScript -->
+                        @if (position.ShowLabel && config != null)
+                        {
+                            <!-- SVG text elements will be added in future version -->
+                        }
+                    </g>
+                }
+            </svg>
+        </div>
+
+        <div class="layout-footer">
+            <span>Zoom: @((zoomLevel * 100).ToString("F0"))%</span>
+            <span class="mx-3">|</span>
+            <span>Antriebe: @positions.Count(@p => p.IsVisible)</span>
+            <span class="mx-3">|</span>
+            <span>Aktive: @driveStates.Count(d => d.Running)</span>
+            <span class="mx-3">|</span>
+            <span>Fehler: @driveStates.Count(d => d.Error)</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int? LayoutId { get; set; }
+
+    private List<LayoutConfiguration> layouts = new();
+    private LayoutConfiguration? currentLayout;
+    private List<DriveLayoutPosition> positions = new();
+    private List<DriveState> driveStates = new();
+    private List<DriveConfiguration> driveConfigs = new();
+
+    private int selectedLayoutId = 1;
+    private HubConnection? hubConnection;
+
+    // Zoom & Pan
+    private double zoomLevel = 1.0;
+    private double panX = 0;
+    private double panY = 0;
+    private bool isPanning = false;
+    private double lastMouseX = 0;
+    private double lastMouseY = 0;
+    private ElementReference svgContainerRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Layouts laden
+        layouts = await LayoutService.GetActiveLayoutsAsync();
+
+        if (LayoutId.HasValue)
+        {
+            selectedLayoutId = LayoutId.Value;
+        }
+        else
+        {
+            var defaultLayout = await LayoutService.GetDefaultLayoutAsync();
+            if (defaultLayout != null)
+            {
+                selectedLayoutId = defaultLayout.Id;
+            }
+        }
+
+        await LoadLayout();
+
+        // SignalR-Verbindung aufbauen
+        await ConnectToHub();
+    }
+
+    private async Task LoadLayout()
+    {
+        currentLayout = await LayoutService.GetLayoutAsync(selectedLayoutId);
+
+        if (currentLayout != null)
+        {
+            positions = await LayoutService.GetLayoutPositionsAsync(selectedLayoutId);
+
+            // Konfigurationen für alle Antriebe laden
+            driveConfigs = new List<DriveConfiguration>();
+            foreach (var pos in positions)
+            {
+                var config = await ConfigService.GetConfigurationAsync(pos.DriveId);
+                if (config != null)
+                {
+                    driveConfigs.Add(config);
+                }
+            }
+        }
+    }
+
+    private async Task OnLayoutChanged()
+    {
+        await LoadLayout();
+        StateHasChanged();
+    }
+
+    private async Task OnLayoutChangedEvent(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int layoutId))
+        {
+            selectedLayoutId = layoutId;
+            await OnLayoutChanged();
+        }
+    }
+
+    private async Task ConnectToHub()
+    {
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/driveHub"))
+            .Build();
+
+        hubConnection.On<List<DriveState>>("DrivesUpdated", (drives) =>
+        {
+            driveStates = drives;
+            InvokeAsync(StateHasChanged);
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    private string GetDriveColor(DriveState? state, DriveLayoutPosition position)
+    {
+        // Custom Color hat Vorrang
+        if (!string.IsNullOrEmpty(position.CustomColor))
+            return position.CustomColor;
+
+        // Sonst Status-basierte Farbcodierung
+        if (state == null)
+            return "#cccccc"; // Grau = keine Daten
+
+        if (state.Error)
+            return "#f44336"; // Rot = Fehler
+
+        if (state.Running)
+            return "#4caf50"; // Grün = läuft
+
+        return "#ffa726"; // Orange = bereit aber nicht aktiv
+    }
+
+    private string GetViewBox()
+    {
+        if (currentLayout == null) return "0 0 1920 1080";
+
+        var width = currentLayout.Width / zoomLevel;
+        var height = currentLayout.Height / zoomLevel;
+        var x = panX;
+        var y = panY;
+
+        return $"{x} {y} {width} {height}";
+    }
+
+    private void ZoomIn()
+    {
+        zoomLevel = Math.Min(zoomLevel * 1.2, 5.0);
+    }
+
+    private void ZoomOut()
+    {
+        zoomLevel = Math.Max(zoomLevel / 1.2, 0.2);
+    }
+
+    private void ResetZoom()
+    {
+        zoomLevel = 1.0;
+        panX = 0;
+        panY = 0;
+    }
+
+    private void OnMouseDown(MouseEventArgs e)
+    {
+        if (e.Button == 0) // Linke Maustaste
+        {
+            isPanning = true;
+            lastMouseX = e.ClientX;
+            lastMouseY = e.ClientY;
+        }
+    }
+
+    private void OnMouseMove(MouseEventArgs e)
+    {
+        if (isPanning && currentLayout != null)
+        {
+            var deltaX = (lastMouseX - e.ClientX) / zoomLevel;
+            var deltaY = (lastMouseY - e.ClientY) / zoomLevel;
+
+            panX += deltaX;
+            panY += deltaY;
+
+            lastMouseX = e.ClientX;
+            lastMouseY = e.ClientY;
+        }
+    }
+
+    private void OnMouseUp(MouseEventArgs e)
+    {
+        isPanning = false;
+    }
+
+    private void OnWheel(WheelEventArgs e)
+    {
+        if (e.DeltaY < 0)
+            ZoomIn();
+        else
+            ZoomOut();
+    }
+
+    private void OnSvgClick(MouseEventArgs e)
+    {
+        // Hier könnte Click-Handler für Antriebe implementiert werden
+    }
+
+    private void NavigateToEditor()
+    {
+        Navigation.NavigateTo($"/layout-editor/{selectedLayoutId}");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection != null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
+
+<style>
+    .layout-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    .layout-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        background: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .layout-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .layout-controls label {
+        font-weight: bold;
+    }
+
+    .svg-container {
+        flex: 1;
+        overflow: hidden;
+        background: #ffffff;
+        border: 1px solid #ddd;
+    }
+
+    .svg-container svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+
+    .drive-shape {
+        transition: opacity 0.2s;
+        cursor: pointer;
+    }
+
+    .drive-shape:hover {
+        opacity: 0.8;
+    }
+
+    .drive-label {
+        user-select: none;
+        pointer-events: none;
+    }
+
+    .drive-info {
+        user-select: none;
+        pointer-events: none;
+    }
+
+    .layout-footer {
+        padding: 10px 20px;
+        background: #e9ecef;
+        border-top: 1px solid #dee2e6;
+        font-size: 14px;
+    }
+
+    .form-control {
+        padding: 5px 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .btn {
+        padding: 5px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+    .btn-primary {
+        background: #2196f3;
+        color: white;
+    }
+
+    .btn-secondary {
+        background: #666;
+        color: white;
+    }
+</style>
