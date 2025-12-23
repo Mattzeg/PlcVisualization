@@ -110,17 +110,19 @@ namespace PlcVisualization.Services
             try
             {
                 // Alle Antriebe in einem Rutsch lesen (10 Bytes pro Antrieb)
-                var drives = new DriveData[_settings.DriveCount];
+                int bytesPerDrive = 10;
+                int totalBytes = _settings.DriveCount * bytesPerDrive;
 
-                // ReadClass liest das komplette Array aus dem konfigurierten DB
-                _plc.ReadClass(drives, _settings.DataBlock, 0);
+                // Rohe Bytes aus DB lesen (robuster als ReadClass)
+                byte[] rawData = _plc.ReadBytes(DataType.DataBlock, _settings.DataBlock, 0, totalBytes);
 
                 // States aktualisieren und nur geänderte Antriebe an Frontend senden
                 var updatedDrives = new List<DriveState>();
 
                 for (int i = 0; i < _settings.DriveCount; i++)
                 {
-                    var driveData = drives[i];
+                    int offset = i * bytesPerDrive;
+                    var driveData = ParseDriveData(rawData, offset);
                     var driveId = i + 1;
 
                     // Prüfen ob sich etwas geändert hat (um unnötige SignalR-Updates zu vermeiden)
@@ -169,6 +171,48 @@ namespace PlcVisualization.Services
                 _isConnected = false;
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Parst rohe Bytes in DriveData Struktur
+        /// </summary>
+        private DriveData ParseDriveData(byte[] data, int offset)
+        {
+            return new DriveData
+            {
+                // Byte 0: Flags (Big Endian Bit-Reihenfolge)
+                ModeAuto = GetBit(data[offset], 0),
+                Running = GetBit(data[offset], 1),
+                Forward = GetBit(data[offset], 2),
+                Reverse = GetBit(data[offset], 3),
+                Error = GetBit(data[offset], 4),
+                HasSetpoint = GetBit(data[offset], 5),
+                HasSpeed = GetBit(data[offset], 6),
+                HasCurrent = GetBit(data[offset], 7),
+
+                // Byte 1: Reserved
+                Reserved = data[offset + 1],
+
+                // Byte 2-3: Speed (Int/Word, Big Endian)
+                Speed = (short)((data[offset + 2] << 8) | data[offset + 3]),
+
+                // Byte 4-5: Current (Int/Word, Big Endian)
+                Current = (short)((data[offset + 4] << 8) | data[offset + 5]),
+
+                // Byte 6-7: Setpoint (Int/Word, Big Endian)
+                Setpoint = (short)((data[offset + 6] << 8) | data[offset + 7]),
+
+                // Byte 8-9: ErrorCode (Int/Word, Big Endian)
+                ErrorCode = (short)((data[offset + 8] << 8) | data[offset + 9])
+            };
+        }
+
+        /// <summary>
+        /// Liest ein Bit aus einem Byte
+        /// </summary>
+        private bool GetBit(byte b, int bitNumber)
+        {
+            return (b & (1 << bitNumber)) != 0;
         }
 
         /// <summary>
