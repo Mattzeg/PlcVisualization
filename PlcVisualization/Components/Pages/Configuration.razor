@@ -1,0 +1,139 @@
+@page "/config"
+@using PlcVisualization.Models
+@using PlcVisualization.Services
+@inject ConfigurationService ConfigService
+@rendermode InteractiveServer
+
+<PageTitle>Konfiguration</PageTitle>
+
+<div class="container-fluid">
+    <h1>Antrieb-Konfiguration</h1>
+
+    @if (configurations == null)
+    {
+        <p>Lade Konfigurationen...</p>
+    }
+    else
+    {
+        <div class="config-grid">
+            @foreach (var config in configurations.OrderBy(c => c.Id))
+            {
+                <div class="config-card">
+                    <h4>Antrieb #@config.Id</h4>
+
+                    <div class="form-group">
+                        <label>Name:</label>
+                        <input type="text" class="form-control" @bind="config.Name" />
+                    </div>
+
+                    <div class="form-group">
+                        <label>Beschreibung:</label>
+                        <input type="text" class="form-control" @bind="config.Description" />
+                    </div>
+
+                    <div class="form-group">
+                        <label>Gruppe:</label>
+                        <input type="text" class="form-control" @bind="config.Group" />
+                    </div>
+
+                    <div class="capabilities">
+                        <h5>Funktionen:</h5>
+                        <label><input type="checkbox" @bind="config.HasForward" /> Vorwärts</label>
+                        <label><input type="checkbox" @bind="config.HasReverse" /> Rückwärts</label>
+                        <label><input type="checkbox" @bind="config.HasSetpoint" /> Sollwert</label>
+                        <label><input type="checkbox" @bind="config.HasSpeedDisplay" /> Drehzahl-Anzeige</label>
+                        <label><input type="checkbox" @bind="config.HasCurrentDisplay" /> Strom-Anzeige</label>
+                        <label><input type="checkbox" @bind="config.IsActive" /> Aktiv</label>
+                    </div>
+
+                    <button class="btn btn-primary" @onclick="() => SaveConfig(config)">Speichern</button>
+                    <button class="btn btn-secondary" @onclick="() => ResetConfig(config.Id)">Zurücksetzen</button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .config-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 20px;
+        padding: 20px 0;
+    }
+
+    .config-card {
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        background: white;
+    }
+
+    .form-group {
+        margin-bottom: 10px;
+    }
+
+    .form-group label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 5px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .capabilities {
+        margin: 15px 0;
+    }
+
+    .capabilities label {
+        display: block;
+        margin: 5px 0;
+    }
+
+    .btn {
+        padding: 8px 15px;
+        margin: 5px 5px 0 0;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .btn-primary {
+        background: #2196f3;
+        color: white;
+    }
+
+    .btn-secondary {
+        background: #666;
+        color: white;
+    }
+</style>
+
+@code {
+    private List<DriveConfiguration>? configurations;
+
+    protected override async Task OnInitializedAsync()
+    {
+        configurations = await ConfigService.GetAllConfigurationsAsync();
+    }
+
+    private async Task SaveConfig(DriveConfiguration config)
+    {
+        await ConfigService.SaveConfigurationAsync(config);
+        // Neulade um sicher zu gehen
+        configurations = await ConfigService.GetAllConfigurationsAsync();
+        StateHasChanged();
+    }
+
+    private async Task ResetConfig(int driveId)
+    {
+        await ConfigService.ResetToDefaultAsync(driveId);
+        configurations = await ConfigService.GetAllConfigurationsAsync();
+        StateHasChanged();
+    }
+}

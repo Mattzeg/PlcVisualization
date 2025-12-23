@@ -19,6 +19,7 @@ namespace PlcVisualization.Services
         private readonly ILogger<PlcService> _logger;
         private readonly IHubContext<DriveHub> _hubContext;
         private readonly PlcSettings _settings;
+        private readonly ConfigurationService _configService;
         private Plc? _plc;
         private readonly Dictionary<int, DriveState> _driveStates = new();
         private bool _isConnected = false;
@@ -26,16 +27,22 @@ namespace PlcVisualization.Services
         public PlcService(
             ILogger<PlcService> logger,
             IHubContext<DriveHub> hubContext,
-            IOptions<PlcSettings> settings)
+            IOptions<PlcSettings> settings,
+            ConfigurationService configService)
         {
             _logger = logger;
             _hubContext = hubContext;
             _settings = settings.Value;
+            _configService = configService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("PLC Service wird gestartet...");
+
+            // Konfigurationen in den Cache laden
+            await _configService.LoadAllIntoCache();
+            _logger.LogInformation("Antrieb-Konfigurationen geladen");
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -129,10 +136,13 @@ namespace PlcVisualization.Services
                     if (!_driveStates.ContainsKey(driveId) ||
                         HasChanged(_driveStates[driveId], driveData))
                     {
+                        // Konfiguration aus Datenbank laden
+                        var config = await _configService.GetConfigurationAsync(driveId);
+
                         var state = new DriveState
                         {
                             Id = driveId,
-                            Name = $"Antrieb {driveId}",
+                            Name = config?.Name ?? $"Antrieb {driveId}",
                             ModeAuto = driveData.ModeAuto,
                             Running = driveData.Running,
                             Forward = driveData.Forward,
@@ -145,12 +155,12 @@ namespace PlcVisualization.Services
                             LastUpdate = DateTime.UtcNow,
                             Capabilities = new DriveCapabilities
                             {
-                                HasSetpoint = driveData.HasSetpoint,
-                                HasSpeedDisplay = driveData.HasSpeed,
-                                HasCurrentDisplay = driveData.HasCurrent,
-                                HasForward = true,  // TODO: Aus Config-DB laden
-                                HasReverse = true,
-                                HasErrorDisplay = true
+                                HasSetpoint = config?.HasSetpoint ?? true,
+                                HasSpeedDisplay = config?.HasSpeedDisplay ?? true,
+                                HasCurrentDisplay = config?.HasCurrentDisplay ?? true,
+                                HasForward = config?.HasForward ?? true,
+                                HasReverse = config?.HasReverse ?? true,
+                                HasErrorDisplay = config?.HasErrorDisplay ?? true
                             }
                         };
 

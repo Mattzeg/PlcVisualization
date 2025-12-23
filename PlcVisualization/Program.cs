@@ -2,6 +2,8 @@ using PlcVisualization.Components;
 using PlcVisualization.Services;
 using PlcVisualization.Hubs;
 using PlcVisualization.Models;
+using PlcVisualization.Data;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +14,14 @@ builder.Services.AddRazorComponents()
 // SignalR für Real-time Updates
 builder.Services.AddSignalR();
 
+// Database Context mit SQLite
+builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? "Data Source=plcvisualization.db"));
+
+// Configuration Service (Singleton, da er von PlcService verwendet wird)
+builder.Services.AddSingleton<ConfigurationService>();
+
 // PLC Settings aus appsettings.json laden
 builder.Services.Configure<PlcSettings>(builder.Configuration.GetSection("PlcSettings"));
 
@@ -20,6 +30,14 @@ builder.Services.AddSingleton<PlcService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PlcService>());
 
 var app = builder.Build();
+
+// Datenbank initialisieren
+using (var scope = app.Services.CreateScope())
+{
+    var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>();
+    using var context = await dbContextFactory.CreateDbContextAsync();
+    await context.Database.EnsureCreatedAsync();
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
