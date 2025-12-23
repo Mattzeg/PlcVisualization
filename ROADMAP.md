@@ -1,6 +1,6 @@
 # PlcVisualization - Roadmap & Geplante Features
 
-## ✅ Fertiggestellt (v1.2)
+## ✅ Fertiggestellt (v1.3)
 
 - [x] Grundlegende Web-Visualisierung
 - [x] S7.Net Kommunikation mit S7-1500
@@ -12,41 +12,46 @@
 - [x] Portable self-contained Version
 - [x] LAN-Zugriff von anderen Geräten
 
-## 🚀 In Arbeit (v1.3)
+### Option A: Antrieb-Konfiguration (SQLite Datenbank) - v1.3
+- [x] SQLite Datenbank hinzugefügt
+- [x] DriveConfiguration Model erstellt
+- [x] Individuelle Namen pro Antrieb ("Förderer 1" statt "Antrieb 1")
+- [x] Capabilities pro Antrieb konfigurierbar
+  - [x] HasForward
+  - [x] HasReverse
+  - [x] HasSetpoint
+  - [x] HasSpeedDisplay
+  - [x] HasCurrentDisplay
+- [x] Min/Max Werte für Sollwerte
+- [x] Beschreibung/Notizen pro Antrieb
+- [x] Konfigurations-Seite im Frontend
+- [x] Datenbank-Migration und Initialisierung
 
-### Option A: Antrieb-Konfiguration (SQLite Datenbank)
-- [ ] SQLite Datenbank hinzufügen
-- [ ] DriveConfiguration Model erstellen
-- [ ] Individuelle Namen pro Antrieb ("Förderer 1" statt "Antrieb 1")
-- [ ] Capabilities pro Antrieb konfigurierbar
-  - [ ] HasForward
-  - [ ] HasReverse
-  - [ ] HasSetpoint
-  - [ ] HasSpeedDisplay
-  - [ ] HasCurrentDisplay
-- [ ] Min/Max Werte für Sollwerte
-- [ ] Beschreibung/Notizen pro Antrieb
-- [ ] Konfigurations-Seite im Frontend
-- [ ] Datenbank-Migration und Initialisierung
-
-## 📋 Backlog (Zukünftige Versionen)
+## 🚀 In Arbeit (v1.4)
 
 ### Option B: Historie & Logging
-- [ ] Werte-Historie in Datenbank speichern
-  - [ ] Speed-Verlauf über Zeit
-  - [ ] Laufzeiten pro Antrieb
-  - [ ] Schaltzyklen zählen
-- [ ] Fehler-Log System
-  - [ ] Zeitstempel bei Fehlern
-  - [ ] Fehlercode-Historie
-  - [ ] Fehlerstatistiken
+- [x] DriveLog Model für Ereignisprotokollierung
+- [x] DriveLoggingService implementiert
+- [x] Ereignis-Logging
+  - [x] Kommandos protokollieren
+  - [x] Zustandsänderungen protokollieren (Running, Forward, Reverse, Mode)
+  - [x] Fehler protokollieren (Error aufgetreten/behoben)
+  - [x] Konfigurationsänderungen protokollieren
+- [x] Historie-Seite im Frontend
+  - [x] Filterbare Tabelle (Antrieb, Event-Typ, Zeitraum)
+  - [x] Farbcodierung nach Event-Typ
+  - [x] Pagination
+- [x] Export-Funktionen
+  - [x] CSV Export
 - [ ] Grafische Darstellung (Charts)
   - [ ] Line-Charts für Verläufe
   - [ ] Zeitbereich auswählbar
-- [ ] Export-Funktionen
-  - [ ] CSV Export
-  - [ ] Excel Export
-  - [ ] PDF-Berichte
+- [ ] Erweiterte Statistiken
+  - [ ] Laufzeiten pro Antrieb
+  - [ ] Schaltzyklen zählen
+  - [ ] Fehlerstatistiken
+
+## 📋 Backlog (Zukünftige Versionen)
 
 ### Option C: SVG-Anlagenlayout
 - [ ] SVG-Editor Integration
@@ -128,16 +133,17 @@
 
 ## 📊 Prioritäten
 
-**Kurzfristig (nächste 2 Wochen):**
+**Kurzfristig:**
 1. ✅ Option A: Antrieb-Konfiguration (v1.3)
+2. ✅ Option B: Historie & Logging - Basis (v1.4)
 
-**Mittelfristig (nächster Monat):**
-2. Option B: Historie & Logging (v1.4)
-3. Option E: Basis-Alarms (v1.5)
+**Mittelfristig:**
+3. Option B: Erweiterte Statistiken & Charts (v1.5)
+4. Option E: Basis-Alarms (v1.6)
 
 **Langfristig:**
-4. Option C: SVG-Layout (v2.0)
-5. Option D: Benutzer-Verwaltung (v2.1)
+5. Option C: SVG-Layout (v2.0)
+6. Option D: Benutzer-Verwaltung (v2.1)
 
 ## 📝 Notizen
 
@@ -149,6 +155,6 @@
 
 ---
 
-**Letzte Aktualisierung:** 2025-12-22
-**Aktuelle Version:** v1.2
-**Nächste Version:** v1.3 (Antrieb-Konfiguration)
+**Letzte Aktualisierung:** 2025-12-23
+**Aktuelle Version:** v1.4
+**Nächste Version:** v1.5 (Charts & Statistiken)

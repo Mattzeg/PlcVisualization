@@ -22,6 +22,9 @@ builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
 // Configuration Service (Singleton, da er von PlcService verwendet wird)
 builder.Services.AddSingleton<ConfigurationService>();
 
+// Drive Logging Service (Singleton)
+builder.Services.AddSingleton<DriveLoggingService>();
+
 // PLC Settings aus appsettings.json laden
 builder.Services.Configure<PlcSettings>(builder.Configuration.GetSection("PlcSettings"));
 
@@ -37,6 +40,11 @@ using (var scope = app.Services.CreateScope())
     var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>();
     using var context = await dbContextFactory.CreateDbContextAsync();
     await context.Database.EnsureCreatedAsync();
+
+    // LoggingService mit ConfigurationService verbinden (zirkuläre Abhängigkeit auflösen)
+    var configService = scope.ServiceProvider.GetRequiredService<ConfigurationService>();
+    var loggingService = scope.ServiceProvider.GetRequiredService<DriveLoggingService>();
+    configService.SetLoggingService(loggingService);
 }
 
 // Configure the HTTP request pipeline.

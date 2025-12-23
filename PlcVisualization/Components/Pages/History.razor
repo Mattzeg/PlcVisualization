@@ -1,0 +1,340 @@
+@page "/history"
+@using PlcVisualization.Models
+@using PlcVisualization.Services
+@using System.Text
+@inject DriveLoggingService LoggingService
+@rendermode InteractiveServer
+
+<PageTitle>Historie & Logging</PageTitle>
+
+<div class="container-fluid">
+    <h1>Antrieb-Historie</h1>
+
+    <div class="filter-panel">
+        <h4>Filter</h4>
+        <div class="filter-row">
+            <div class="filter-item">
+                <label>Antrieb-ID:</label>
+                <input type="number" class="form-control" @bind="filterDriveId" min="0" max="100" />
+            </div>
+
+            <div class="filter-item">
+                <label>Event-Typ:</label>
+                <select class="form-control" @bind="filterEventType">
+                    <option value="">Alle</option>
+                    <option value="Command">Kommando</option>
+                    <option value="StateChange">Zustandsänderung</option>
+                    <option value="Error">Fehler</option>
+                    <option value="ErrorCleared">Fehler behoben</option>
+                    <option value="ConfigChanged">Konfiguration</option>
+                </select>
+            </div>
+
+            <div class="filter-item">
+                <label>Von:</label>
+                <input type="datetime-local" class="form-control" @bind="filterFrom" />
+            </div>
+
+            <div class="filter-item">
+                <label>Bis:</label>
+                <input type="datetime-local" class="form-control" @bind="filterTo" />
+            </div>
+
+            <div class="filter-item">
+                <label>&nbsp;</label>
+                <button class="btn btn-primary" @onclick="LoadLogs">Aktualisieren</button>
+                <button class="btn btn-secondary" @onclick="ResetFilters">Zurücksetzen</button>
+            </div>
+        </div>
+    </div>
+
+    @if (logs == null)
+    {
+        <p>Lade Historie...</p>
+    }
+    else if (logs.Count == 0)
+    {
+        <p>Keine Einträge gefunden.</p>
+    }
+    else
+    {
+        <div class="stats-panel">
+            <span>Gesamt: <strong>@totalCount</strong> Einträge</span>
+            <span class="mx-3">|</span>
+            <span>Angezeigt: <strong>@logs.Count</strong></span>
+            <span class="mx-3">|</span>
+            <button class="btn btn-success btn-sm" @onclick="ExportToCsv">CSV Export</button>
+        </div>
+
+        <div class="table-container">
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>Zeitstempel</th>
+                        <th>Antrieb</th>
+                        <th>Typ</th>
+                        <th>Beschreibung</th>
+                        <th>Alt</th>
+                        <th>Neu</th>
+                        <th>Fehlercode</th>
+                        <th>Benutzer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in logs)
+                    {
+                        <tr class="@GetRowClass(log.EventType)">
+                            <td>@log.Timestamp.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss")</td>
+                            <td>#@log.DriveId - @log.DriveName</td>
+                            <td>@GetEventTypeText(log.EventType)</td>
+                            <td>@log.Description</td>
+                            <td>@log.OldValue</td>
+                            <td>@log.NewValue</td>
+                            <td>@(log.ErrorCode.HasValue ? log.ErrorCode.Value.ToString() : "-")</td>
+                            <td>@(log.User ?? "-")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (logs.Count >= pageSize)
+        {
+            <div class="pagination-info">
+                <p>Maximal @pageSize Einträge werden angezeigt. Verwenden Sie Filter für spezifischere Abfragen.</p>
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .filter-panel {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .filter-row {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: end;
+    }
+
+    .filter-item {
+        flex: 1;
+        min-width: 150px;
+    }
+
+    .filter-item label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 5px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .stats-panel {
+        background: #e9ecef;
+        padding: 10px 15px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+    }
+
+    .table-container {
+        overflow-x: auto;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 15px;
+    }
+
+    .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+
+    .history-table thead {
+        background: #343a40;
+        color: white;
+        position: sticky;
+        top: 0;
+    }
+
+    .history-table th, .history-table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .history-table th {
+        font-weight: bold;
+    }
+
+    .history-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .row-command {
+        background: #e3f2fd;
+    }
+
+    .row-statechange {
+        background: #fff3e0;
+    }
+
+    .row-error {
+        background: #ffebee;
+    }
+
+    .row-errorcleared {
+        background: #e8f5e9;
+    }
+
+    .row-configchanged {
+        background: #f3e5f5;
+    }
+
+    .btn {
+        padding: 8px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+    .btn-primary {
+        background: #2196f3;
+        color: white;
+    }
+
+    .btn-secondary {
+        background: #666;
+        color: white;
+    }
+
+    .btn-success {
+        background: #4caf50;
+        color: white;
+    }
+
+    .btn-sm {
+        padding: 5px 10px;
+        font-size: 12px;
+    }
+
+    .pagination-info {
+        text-align: center;
+        color: #666;
+        font-style: italic;
+    }
+</style>
+
+@code {
+    private List<DriveLog>? logs;
+    private int totalCount = 0;
+    private int pageSize = 500;
+
+    // Filter
+    private int? filterDriveId = null;
+    private string filterEventType = "";
+    private DateTime? filterFrom = null;
+    private DateTime? filterTo = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Standard: letzte 24 Stunden
+        filterFrom = DateTime.Now.AddDays(-1);
+        filterTo = DateTime.Now;
+        await LoadLogs();
+    }
+
+    private async Task LoadLogs()
+    {
+        if (filterFrom.HasValue && filterTo.HasValue)
+        {
+            logs = await LoggingService.GetLogsByDateRangeAsync(
+                filterFrom.Value.ToUniversalTime(),
+                filterTo.Value.ToUniversalTime(),
+                filterDriveId);
+        }
+        else if (!string.IsNullOrEmpty(filterEventType))
+        {
+            logs = await LoggingService.GetLogsByEventTypeAsync(filterEventType, pageSize);
+        }
+        else if (filterDriveId.HasValue && filterDriveId.Value > 0)
+        {
+            logs = await LoggingService.GetLogsByDriveAsync(filterDriveId.Value, pageSize);
+        }
+        else
+        {
+            logs = await LoggingService.GetAllLogsAsync(pageSize);
+        }
+
+        totalCount = await LoggingService.GetLogCountAsync();
+    }
+
+    private async Task ResetFilters()
+    {
+        filterDriveId = null;
+        filterEventType = "";
+        filterFrom = DateTime.Now.AddDays(-1);
+        filterTo = DateTime.Now;
+        await LoadLogs();
+    }
+
+    private string GetEventTypeText(string eventType)
+    {
+        return eventType switch
+        {
+            "Command" => "Kommando",
+            "StateChange" => "Zustandsänderung",
+            "Error" => "Fehler",
+            "ErrorCleared" => "Fehler behoben",
+            "ConfigChanged" => "Konfiguration",
+            _ => eventType
+        };
+    }
+
+    private string GetRowClass(string eventType)
+    {
+        return eventType.ToLower() switch
+        {
+            "command" => "row-command",
+            "statechange" => "row-statechange",
+            "error" => "row-error",
+            "errorcleared" => "row-errorcleared",
+            "configchanged" => "row-configchanged",
+            _ => ""
+        };
+    }
+
+    private async Task ExportToCsv()
+    {
+        if (logs == null || logs.Count == 0)
+            return;
+
+        var csv = new StringBuilder();
+        csv.AppendLine("Zeitstempel;Antrieb-ID;Antrieb-Name;Typ;Beschreibung;Alt;Neu;Fehlercode;Benutzer");
+
+        foreach (var log in logs)
+        {
+            csv.AppendLine($"{log.Timestamp.ToLocalTime():dd.MM.yyyy HH:mm:ss};{log.DriveId};{log.DriveName};{GetEventTypeText(log.EventType)};{log.Description};{log.OldValue};{log.NewValue};{log.ErrorCode};{log.User}");
+        }
+
+        // CSV zum Download anbieten
+        var bytes = Encoding.UTF8.GetBytes(csv.ToString());
+        var base64 = Convert.ToBase64String(bytes);
+        var filename = $"DriveHistory_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+
+        await JSInterop.InvokeVoidAsync("downloadFile", filename, base64);
+    }
+}
+
+@inject IJSRuntime JSInterop

@@ -18,6 +18,11 @@ namespace PlcVisualization.Data
         /// </summary>
         public DbSet<DriveConfiguration> DriveConfigurations { get; set; }
 
+        /// <summary>
+        /// Antrieb-Protokoll (Historie & Logging)
+        /// </summary>
+        public DbSet<DriveLog> DriveLogs { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -30,6 +35,19 @@ namespace PlcVisualization.Data
             // Index für Gruppe (für zukünftige Filterung)
             modelBuilder.Entity<DriveConfiguration>()
                 .HasIndex(d => d.Group);
+
+            // Indizes für DriveLog (für schnelle Abfragen)
+            modelBuilder.Entity<DriveLog>()
+                .HasIndex(d => d.DriveId);
+
+            modelBuilder.Entity<DriveLog>()
+                .HasIndex(d => d.Timestamp);
+
+            modelBuilder.Entity<DriveLog>()
+                .HasIndex(d => d.EventType);
+
+            modelBuilder.Entity<DriveLog>()
+                .HasIndex(d => new { d.DriveId, d.Timestamp });
 
             // Standard-Werte für alle 100 Antriebe beim Erstellen der Datenbank
             var configurations = new List<DriveConfiguration>();

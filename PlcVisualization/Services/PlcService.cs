@@ -20,6 +20,7 @@ namespace PlcVisualization.Services
         private readonly IHubContext<DriveHub> _hubContext;
         private readonly PlcSettings _settings;
         private readonly ConfigurationService _configService;
+        private readonly DriveLoggingService _loggingService;
         private Plc? _plc;
         private readonly Dictionary<int, DriveState> _driveStates = new();
         private bool _isConnected = false;
@@ -28,12 +29,14 @@ namespace PlcVisualization.Services
             ILogger<PlcService> logger,
             IHubContext<DriveHub> hubContext,
             IOptions<PlcSettings> settings,
-            ConfigurationService configService)
+            ConfigurationService configService,
+            DriveLoggingService loggingService)
         {
             _logger = logger;
             _hubContext = hubContext;
             _settings = settings.Value;
             _configService = configService;
+            _loggingService = loggingService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -138,6 +141,13 @@ namespace PlcVisualization.Services
                     {
                         // Konfiguration aus Datenbank laden
                         var config = await _configService.GetConfigurationAsync(driveId);
+
+                        // Bei existierendem State, Zustandsänderungen loggen
+                        if (_driveStates.ContainsKey(driveId))
+                        {
+                            var oldState = _driveStates[driveId];
+                            await LogStateChangesAsync(driveId, oldState, driveData);
+                        }
 
                         var state = new DriveState
                         {
@@ -252,6 +262,9 @@ namespace PlcVisualization.Services
                 return false;
             }
 
+            // Kommando loggen
+            await _loggingService.LogCommandAsync(command.DriveId, command);
+
             try
             {
                 int driveIndex = command.DriveId - 1;
@@ -318,6 +331,53 @@ namespace PlcVisualization.Services
         /// Gibt den Verbindungsstatus zurück
         /// </summary>
         public bool IsConnected => _isConnected;
+
+        /// <summary>
+        /// Protokolliert wichtige Zustandsänderungen
+        /// </summary>
+        private async Task LogStateChangesAsync(int driveId, DriveState oldState, DriveData newData)
+        {
+            // Running State geändert
+            if (oldState.Running != newData.Running)
+            {
+                await _loggingService.LogStateChangeAsync(driveId, "Running",
+                    oldState.Running.ToString(), newData.Running.ToString());
+            }
+
+            // Forward State geändert
+            if (oldState.Forward != newData.Forward)
+            {
+                await _loggingService.LogStateChangeAsync(driveId, "Forward",
+                    oldState.Forward.ToString(), newData.Forward.ToString());
+            }
+
+            // Reverse State geändert
+            if (oldState.Reverse != newData.Reverse)
+            {
+                await _loggingService.LogStateChangeAsync(driveId, "Reverse",
+                    oldState.Reverse.ToString(), newData.Reverse.ToString());
+            }
+
+            // Mode geändert
+            if (oldState.ModeAuto != newData.ModeAuto)
+            {
+                await _loggingService.LogStateChangeAsync(driveId, "Mode",
+                    oldState.ModeAuto ? "AUTO" : "HAND",
+                    newData.ModeAuto ? "AUTO" : "HAND");
+            }
+
+            // Fehler aufgetreten
+            if (!oldState.Error && newData.Error)
+            {
+                await _loggingService.LogErrorAsync(driveId, newData.ErrorCode);
+            }
+
+            // Fehler behoben
+            if (oldState.Error && !newData.Error)
+            {
+                await _loggingService.LogErrorClearedAsync(driveId, oldState.ErrorCode);
+            }
+        }
 
         public override async Task StopAsync(CancellationToken cancellationToken)
         {

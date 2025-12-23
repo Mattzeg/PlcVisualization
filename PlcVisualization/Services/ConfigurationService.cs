@@ -14,6 +14,7 @@ namespace PlcVisualization.Services
         private readonly Dictionary<int, DriveConfiguration> _configCache = new();
         private DateTime _lastCacheUpdate = DateTime.MinValue;
         private readonly TimeSpan _cacheLifetime = TimeSpan.FromMinutes(5);
+        private DriveLoggingService? _loggingService;
 
         public ConfigurationService(
             IDbContextFactory<ApplicationDbContext> contextFactory,
@@ -21,6 +22,14 @@ namespace PlcVisualization.Services
         {
             _contextFactory = contextFactory;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Setzt den LoggingService (wird nach Initialisierung aufgerufen, um zirkuläre Abhängigkeit zu vermeiden)
+        /// </summary>
+        public void SetLoggingService(DriveLoggingService loggingService)
+        {
+            _loggingService = loggingService;
         }
 
         /// <summary>
@@ -122,6 +131,13 @@ namespace PlcVisualization.Services
 
                 // Cache aktualisieren
                 _configCache[configuration.Id] = configuration;
+
+                // Konfigurationsänderung loggen
+                if (_loggingService != null)
+                {
+                    await _loggingService.LogConfigChangeAsync(configuration.Id,
+                        $"Konfiguration aktualisiert: Name='{configuration.Name}', Gruppe='{configuration.Group}'");
+                }
 
                 _logger.LogInformation($"Saved configuration for drive {configuration.Id}");
                 return true;
