@@ -39,7 +39,7 @@
     }
     else
     {
-        <div class="svg-container" @ref="svgContainerRef">
+        <div class="svg-container" @ref="svgContainerRef" style="position: relative;">
             <svg width="@currentLayout.Width" height="@currentLayout.Height"
                  viewBox="@GetViewBox()"
                  @onclick="OnSvgClick"
@@ -47,7 +47,7 @@
                  @onmousemove="OnMouseMove"
                  @onmouseup="OnMouseUp"
                  @onwheel="OnWheel"
-                 style="cursor: @(isPanning ? "grabbing" : "grab")">
+                 style="cursor: @(isPanning ? "grabbing" : "grab"); position: absolute; top: 0; left: 0;">
 
                 <!-- Hintergrundbild falls vorhanden -->
                 @if (!string.IsNullOrEmpty(currentLayout.BackgroundSvg))
@@ -139,14 +139,57 @@
                             }
                         }
 
-                        <!-- Label - TODO: Add SVG labels via JavaScript -->
-                        @if (position.ShowLabel && config != null)
-                        {
-                            <!-- SVG text elements will be added in future version -->
-                        }
                     </g>
                 }
             </svg>
+
+            <!-- HTML Labels als Overlay -->
+            @foreach (var position in positions.Where(p => p.IsVisible && p.ShowLabel).OrderBy(p => p.ZIndex))
+            {
+                var config = driveConfigs.FirstOrDefault(c => c.Id == position.DriveId);
+                var driveState = driveStates.FirstOrDefault(d => d.Id == position.DriveId);
+
+                if (config != null)
+                {
+                    var labelY = position.LabelPosition switch
+                    {
+                        "top" => position.Y - 10,
+                        "bottom" => position.Y + position.Height + 5,
+                        "center" => position.Y + position.Height / 2,
+                        _ => position.Y + position.Height + 5
+                    };
+
+                    <div style="position: absolute;
+                                left: @(position.X + position.Width/2)px;
+                                top: @(labelY)px;
+                                transform: translateX(-50%);
+                                pointer-events: none;
+                                z-index: 1000;">
+                        <div style="text-align: center;
+                                    font-size: 12px;
+                                    font-weight: bold;
+                                    color: #333;
+                                    background: rgba(255,255,255,0.9);
+                                    padding: 2px 6px;
+                                    border-radius: 3px;
+                                    white-space: nowrap;">
+                            #@position.DriveId - @config.Name
+                        </div>
+                        @if (driveState != null)
+                        {
+                            <div style="text-align: center;
+                                        font-size: 10px;
+                                        color: #666;
+                                        background: rgba(255,255,255,0.8);
+                                        padding: 1px 4px;
+                                        border-radius: 2px;
+                                        margin-top: 2px;">
+                                @(driveState.ModeAuto ? "AUTO" : "HAND") | @(driveState.Running ? "Läuft" : "Stop")
+                            </div>
+                        }
+                    </div>
+                }
+            }
         </div>
 
         <div class="layout-footer">

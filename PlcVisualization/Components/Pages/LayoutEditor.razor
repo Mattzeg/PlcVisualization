@@ -61,10 +61,10 @@
             }
             else
             {
-                <div class="canvas-wrapper">
+                <div class="canvas-wrapper" style="position: relative;">
                     <svg width="@currentLayout.Width" height="@currentLayout.Height"
                          viewBox="0 0 @currentLayout.Width @currentLayout.Height"
-                         style="background: white; border: 1px solid #ddd;">
+                         style="background: white; border: 1px solid #ddd; display: block;">
 
                         <!-- Grid -->
                         @if (currentLayout.GridSize > 0)
@@ -119,14 +119,36 @@
                                         break;
                                 }
 
-                                <!-- Label - TODO: Add SVG text labels -->
-                                @if (config != null)
-                                {
-                                    <!-- SVG text elements not supported in Razor, will be added via JavaScript -->
-                                }
                             </g>
                         }
                     </svg>
+
+                    <!-- HTML Labels als Overlay -->
+                    @foreach (var position in positions.OrderBy(p => p.ZIndex))
+                    {
+                        var config = driveConfigs.FirstOrDefault(c => c.Id == position.DriveId);
+                        if (config != null)
+                        {
+                            <div style="position: absolute;
+                                        left: @(position.X + position.Width/2)px;
+                                        top: @(position.Y + position.Height + 5)px;
+                                        transform: translateX(-50%);
+                                        pointer-events: none;
+                                        z-index: 1000;">
+                                <div style="text-align: center;
+                                            font-size: 11px;
+                                            font-weight: bold;
+                                            color: #333;
+                                            background: rgba(255,255,255,0.95);
+                                            padding: 2px 6px;
+                                            border-radius: 3px;
+                                            border: 1px solid #ddd;
+                                            white-space: nowrap;">
+                                    #@position.DriveId - @config.Name
+                                </div>
+                            </div>
+                        }
+                    }
                 </div>
             }
         </div>
